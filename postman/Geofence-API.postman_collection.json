@@ -1,0 +1,1875 @@
+{
+  "info": {
+    "_postman_id": "dd85625f-4187-4ebd-b995-db88860e62ed",
+    "name": "Geofencing & Real-time Alert API",
+    "description": "All routes of the geofencing API with tests. Run the folders in order (or use the Collection Runner): later requests reuse ids saved by earlier ones.\n\nVariables: baseUrl (default http://localhost:8080) and apiKey (leave empty unless API_KEY is set on the server).\n\nWebSocket alerts: Postman -> New -> WebSocket -> ws://localhost:8080/ws/alerts (add ?api_key=... if the server uses an API key), click Connect, then run folder 4.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "auth": {
+    "type": "apikey",
+    "apikey": [
+      {
+        "key": "key",
+        "value": "X-API-Key",
+        "type": "string"
+      },
+      {
+        "key": "value",
+        "value": "{{apiKey}}",
+        "type": "string"
+      },
+      {
+        "key": "in",
+        "value": "header",
+        "type": "string"
+      }
+    ]
+  },
+  "event": [
+    {
+      "listen": "test",
+      "script": {
+        "type": "text/javascript",
+        "exec": [
+          "const ct = pm.response.headers.get('Content-Type') || '';",
+          "if (ct.includes('application/json')) {",
+          "  pm.test('response has time_ns (string, nanoseconds)', () => {",
+          "    const j = pm.response.json();",
+          "    pm.expect(j).to.have.property('time_ns');",
+          "    pm.expect(j.time_ns).to.be.a('string');",
+          "    pm.expect(j.time_ns).to.match(/^[0-9]+$/);",
+          "  });",
+          "}"
+        ]
+      }
+    }
+  ],
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://localhost:8080"
+    },
+    {
+      "key": "apiKey",
+      "value": ""
+    },
+    {
+      "key": "geofenceId",
+      "value": ""
+    },
+    {
+      "key": "deliveryGeofenceId",
+      "value": ""
+    },
+    {
+      "key": "vehicleId",
+      "value": ""
+    },
+    {
+      "key": "vehicleNumber",
+      "value": ""
+    },
+    {
+      "key": "alertId",
+      "value": ""
+    },
+    {
+      "key": "vehicleAlertId",
+      "value": ""
+    },
+    {
+      "key": "ts",
+      "value": ""
+    },
+    {
+      "key": "dLat",
+      "value": ""
+    },
+    {
+      "key": "dLon",
+      "value": ""
+    },
+    {
+      "key": "sentLat",
+      "value": ""
+    },
+    {
+      "key": "startDate",
+      "value": ""
+    },
+    {
+      "key": "endDate",
+      "value": ""
+    }
+  ],
+  "item": [
+    {
+      "name": "0. Health",
+      "item": [
+        {
+          "name": "Health check",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/health",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "health"
+              ]
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 200', () => pm.response.to.have.status(200));",
+                  "pm.test('status is ok', () => pm.expect(pm.response.json().status).to.eql('ok'));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "1. Geofences",
+      "item": [
+        {
+          "name": "1.1 Create geofence (restricted_zone)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/geofences",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "geofences"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Downtown Restricted Zone\",\n  \"description\": \"No entry for delivery trucks\",\n  \"coordinates\": [\n    [\n      37.7749,\n      -122.4194\n    ],\n    [\n      37.7849,\n      -122.4194\n    ],\n    [\n      37.7849,\n      -122.4094\n    ],\n    [\n      37.7749,\n      -122.4094\n    ],\n    [\n      37.7749,\n      -122.4194\n    ]\n  ],\n  \"category\": \"restricted_zone\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.collectionVariables.set('dLat', +(Math.random() * 60 - 30).toFixed(4));",
+                  "pm.collectionVariables.set('dLon', +(Math.random() * 100 - 50).toFixed(4));",
+                  "// Shift every coordinate by a per-run offset so each run uses its own area and never overlaps zones left by earlier runs.",
+                  "const dLat = Number(pm.collectionVariables.get('dLat') || 0), dLon = Number(pm.collectionVariables.get('dLon') || 0);",
+                  "const b = JSON.parse(pm.request.body.raw);",
+                  "b.coordinates = b.coordinates.map(([la, lo]) => [+(la + dLat).toFixed(6), +(lo + dLon).toFixed(6)]);",
+                  "pm.request.body.update(JSON.stringify(b));"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 201', () => pm.response.to.have.status(201));",
+                  "const j = pm.response.json();",
+                  "pm.test('returns id, name and status active', () => { pm.expect(j.id).to.match(/^geo_/); pm.expect(j.status).to.eql('active'); });",
+                  "pm.collectionVariables.set('geofenceId', j.id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "1.2 Create geofence (delivery_zone)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/geofences",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "geofences"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Harbour Delivery Zone\",\n  \"description\": \"Main delivery area\",\n  \"coordinates\": [\n    [\n      37.8,\n      -122.4\n    ],\n    [\n      37.81,\n      -122.4\n    ],\n    [\n      37.81,\n      -122.39\n    ],\n    [\n      37.8,\n      -122.39\n    ],\n    [\n      37.8,\n      -122.4\n    ]\n  ],\n  \"category\": \"delivery_zone\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// Shift every coordinate by a per-run offset so each run uses its own area and never overlaps zones left by earlier runs.",
+                  "const dLat = Number(pm.collectionVariables.get('dLat') || 0), dLon = Number(pm.collectionVariables.get('dLon') || 0);",
+                  "const b = JSON.parse(pm.request.body.raw);",
+                  "b.coordinates = b.coordinates.map(([la, lo]) => [+(la + dLat).toFixed(6), +(lo + dLon).toFixed(6)]);",
+                  "pm.request.body.update(JSON.stringify(b));"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 201', () => pm.response.to.have.status(201));",
+                  "pm.collectionVariables.set('deliveryGeofenceId', pm.response.json().id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "1.3 List all geofences",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/geofences",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "geofences"
+              ]
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 200', () => pm.response.to.have.status(200));",
+                  "const j = pm.response.json();",
+                  "pm.test('has geofences array with required fields', () => { pm.expect(j.geofences).to.be.an('array').that.is.not.empty; ['id','name','description','coordinates','category','created_at'].forEach(k => pm.expect(j.geofences[0]).to.have.property(k)); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "1.4 List geofences filtered by category",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/geofences?category=restricted_zone",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "geofences"
+              ],
+              "query": [
+                {
+                  "key": "category",
+                  "value": "restricted_zone"
+                }
+              ]
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 200', () => pm.response.to.have.status(200));",
+                  "pm.test('only restricted_zone returned', () => { const g = pm.response.json().geofences; pm.expect(g).to.not.be.empty; g.forEach(x => pm.expect(x.category).to.eql('restricted_zone')); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "1.5 List geofences with pagination (extra)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/geofences?limit=1&offset=0",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "geofences"
+              ],
+              "query": [
+                {
+                  "key": "limit",
+                  "value": "1"
+                },
+                {
+                  "key": "offset",
+                  "value": "0"
+                }
+              ]
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 200', () => pm.response.to.have.status(200));",
+                  "pm.test('one item and total_count present', () => { const j = pm.response.json(); pm.expect(j.geofences).to.have.length(1); pm.expect(j.total_count).to.be.at.least(1); });"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "2. Vehicles",
+      "item": [
+        {
+          "name": "2.1 Register vehicle",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/vehicles",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "vehicles"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"vehicle_number\": \"{{vehicleNumber}}\",\n  \"driver_name\": \"John Doe\",\n  \"vehicle_type\": \"truck\",\n  \"phone\": \"+1234567890\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.collectionVariables.set('vehicleNumber', 'KA-01-' + Math.random().toString(36).slice(2, 8).toUpperCase());"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 201', () => pm.response.to.have.status(201));",
+                  "const j = pm.response.json();",
+                  "pm.test('returns id, vehicle_number, status active', () => { pm.expect(j.id).to.match(/^veh_/); pm.expect(j.vehicle_number).to.eql(pm.collectionVariables.get('vehicleNumber')); pm.expect(j.status).to.eql('active'); });",
+                  "pm.collectionVariables.set('vehicleId', j.id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "2.2 List vehicles",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/vehicles",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "vehicles"
+              ]
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 200', () => pm.response.to.have.status(200));",
+                  "pm.test('contains the registered vehicle', () => { const v = pm.response.json().vehicles; pm.expect(v.map(x => x.id)).to.include(pm.collectionVariables.get('vehicleId')); ['id','vehicle_number','driver_name','vehicle_type','phone','status','created_at'].forEach(k => pm.expect(v[0]).to.have.property(k)); });"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "3. Alert rules",
+      "item": [
+        {
+          "name": "3.1 Configure alert (restricted zone, both, all vehicles)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/alerts/configure",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "alerts",
+                "configure"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"geofence_id\": \"{{geofenceId}}\",\n  \"event_type\": \"both\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 201', () => pm.response.to.have.status(201));",
+                  "const j = pm.response.json();",
+                  "pm.test('rule created for all vehicles', () => { pm.expect(j.alert_id).to.match(/^alert_/); pm.expect(j.vehicle_id).to.eql(null); pm.expect(j.event_type).to.eql('both'); pm.expect(j.status).to.eql('active'); });",
+                  "pm.collectionVariables.set('alertId', j.alert_id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "3.2 Configure alert (specific vehicle, entry only)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/alerts/configure",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "alerts",
+                "configure"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"geofence_id\": \"{{deliveryGeofenceId}}\",\n  \"vehicle_id\": \"{{vehicleId}}\",\n  \"event_type\": \"entry\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 201', () => pm.response.to.have.status(201));",
+                  "pm.test('rule is scoped to the vehicle', () => pm.expect(pm.response.json().vehicle_id).to.eql(pm.collectionVariables.get('vehicleId')));",
+                  "pm.collectionVariables.set('vehicleAlertId', pm.response.json().alert_id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "3.3 List all alert rules",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/alerts",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "alerts"
+              ]
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 200', () => pm.response.to.have.status(200));",
+                  "pm.test('rules include names', () => { const a = pm.response.json().alerts; pm.expect(a.length).to.be.at.least(2); ['alert_id','geofence_id','geofence_name','vehicle_id','vehicle_number','event_type','status','created_at'].forEach(k => pm.expect(a[0]).to.have.property(k)); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "3.4 List alert rules filtered by geofence_id",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/alerts?geofence_id={{geofenceId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "alerts"
+              ],
+              "query": [
+                {
+                  "key": "geofence_id",
+                  "value": "{{geofenceId}}"
+                }
+              ]
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 200', () => pm.response.to.have.status(200));",
+                  "pm.test('only rules of that geofence', () => pm.response.json().alerts.forEach(a => pm.expect(a.geofence_id).to.eql(pm.collectionVariables.get('geofenceId'))));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "3.5 List alert rules filtered by vehicle_id",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/alerts?vehicle_id={{vehicleId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "alerts"
+              ],
+              "query": [
+                {
+                  "key": "vehicle_id",
+                  "value": "{{vehicleId}}"
+                }
+              ]
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 200', () => pm.response.to.have.status(200));",
+                  "pm.test('only rules of that vehicle', () => { const a = pm.response.json().alerts; pm.expect(a).to.not.be.empty; a.forEach(x => pm.expect(x.vehicle_id).to.eql(pm.collectionVariables.get('vehicleId'))); });"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "4. Location updates and real-time alerts",
+      "item": [
+        {
+          "name": "4.1 Update location - outside every geofence (baseline)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/vehicles/location",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "vehicles",
+                "location"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"vehicle_id\": \"{{vehicleId}}\",\n  \"latitude\": 37.7,\n  \"longitude\": -122.5,\n  \"timestamp\": \"{{ts}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "description": "Vehicle starts outside the restricted zone. No event is generated."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const dLat = Number(pm.collectionVariables.get('dLat') || 0), dLon = Number(pm.collectionVariables.get('dLon') || 0);",
+                  "const b = JSON.parse(pm.request.body.raw);",
+                  "b.latitude = +(b.latitude + dLat).toFixed(6); b.longitude = +(b.longitude + dLon).toFixed(6);",
+                  "b.timestamp = new Date(Date.now() - 5 * 60000).toISOString();",
+                  "pm.request.body.update(JSON.stringify(b));",
+                  "pm.collectionVariables.set('sentLat', b.latitude);"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 200', () => pm.response.to.have.status(200));",
+                  "const j = pm.response.json();",
+                  "pm.test('location updated, not inside anything', () => { pm.expect(j.location_updated).to.eql(true); pm.expect(j.current_geofences).to.eql([]); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "4.2 Update location - ENTER restricted zone (alert is pushed)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/vehicles/location",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "vehicles",
+                "location"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"vehicle_id\": \"{{vehicleId}}\",\n  \"latitude\": 37.7799,\n  \"longitude\": -122.4144,\n  \"timestamp\": \"{{ts}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "description": "Triggers an ENTRY event. If you are connected to ws://localhost:8080/ws/alerts you will see the alert arrive."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const dLat = Number(pm.collectionVariables.get('dLat') || 0), dLon = Number(pm.collectionVariables.get('dLon') || 0);",
+                  "const b = JSON.parse(pm.request.body.raw);",
+                  "b.latitude = +(b.latitude + dLat).toFixed(6); b.longitude = +(b.longitude + dLon).toFixed(6);",
+                  "b.timestamp = new Date(Date.now() - 4 * 60000).toISOString();",
+                  "pm.request.body.update(JSON.stringify(b));",
+                  "pm.collectionVariables.set('sentLat', b.latitude);"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 200', () => pm.response.to.have.status(200));",
+                  "const j = pm.response.json();",
+                  "pm.test('inside the restricted zone', () => { pm.expect(j.current_geofences).to.have.length(1); pm.expect(j.current_geofences[0].geofence_id).to.eql(pm.collectionVariables.get('geofenceId')); pm.expect(j.current_geofences[0].status).to.eql('inside'); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "4.3 Get current location of the vehicle",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/vehicles/location/{{vehicleId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "vehicles",
+                "location",
+                "{{vehicleId}}"
+              ]
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 200', () => pm.response.to.have.status(200));",
+                  "const j = pm.response.json();",
+                  "pm.test('shape and geofence status', () => { pm.expect(j.vehicle_id).to.eql(pm.collectionVariables.get('vehicleId')); pm.expect(j.vehicle_number).to.eql(pm.collectionVariables.get('vehicleNumber')); pm.expect(j.current_location.latitude).to.eql(Number(pm.collectionVariables.get('sentLat'))); pm.expect(j.current_location).to.have.property('timestamp'); pm.expect(j.current_geofences).to.have.length(1); pm.expect(j.current_geofences[0].category).to.eql('restricted_zone'); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "4.4 Update location - LEAVE restricted zone (alert is pushed)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/vehicles/location",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "vehicles",
+                "location"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"vehicle_id\": \"{{vehicleId}}\",\n  \"latitude\": 37.7,\n  \"longitude\": -122.5,\n  \"timestamp\": \"{{ts}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "description": "Triggers an EXIT event."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const dLat = Number(pm.collectionVariables.get('dLat') || 0), dLon = Number(pm.collectionVariables.get('dLon') || 0);",
+                  "const b = JSON.parse(pm.request.body.raw);",
+                  "b.latitude = +(b.latitude + dLat).toFixed(6); b.longitude = +(b.longitude + dLon).toFixed(6);",
+                  "b.timestamp = new Date(Date.now() - 3 * 60000).toISOString();",
+                  "pm.request.body.update(JSON.stringify(b));",
+                  "pm.collectionVariables.set('sentLat', b.latitude);"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 200', () => pm.response.to.have.status(200));",
+                  "pm.test('no longer inside any geofence', () => pm.expect(pm.response.json().current_geofences).to.eql([]));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "4.5 Update location - ENTER delivery zone (vehicle-specific rule)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/vehicles/location",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "vehicles",
+                "location"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"vehicle_id\": \"{{vehicleId}}\",\n  \"latitude\": 37.805,\n  \"longitude\": -122.395,\n  \"timestamp\": \"{{ts}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const dLat = Number(pm.collectionVariables.get('dLat') || 0), dLon = Number(pm.collectionVariables.get('dLon') || 0);",
+                  "const b = JSON.parse(pm.request.body.raw);",
+                  "b.latitude = +(b.latitude + dLat).toFixed(6); b.longitude = +(b.longitude + dLon).toFixed(6);",
+                  "b.timestamp = new Date(Date.now() - 2 * 60000).toISOString();",
+                  "pm.request.body.update(JSON.stringify(b));",
+                  "pm.collectionVariables.set('sentLat', b.latitude);"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 200', () => pm.response.to.have.status(200));",
+                  "pm.test('inside the delivery zone', () => pm.expect(pm.response.json().current_geofences[0].geofence_id).to.eql(pm.collectionVariables.get('deliveryGeofenceId')));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "4.6 List latest location of all vehicles (extra)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/vehicles/locations",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "vehicles",
+                "locations"
+              ]
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 200', () => pm.response.to.have.status(200));",
+                  "pm.test('lists our vehicle with its geofences', () => { const l = pm.response.json().locations.find(x => x.vehicle_id === pm.collectionVariables.get('vehicleId')); pm.expect(l).to.exist; pm.expect(l.current_geofences).to.have.length(1); });"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "5. History and delivered alerts",
+      "item": [
+        {
+          "name": "5.1 Violation history (all)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/violations/history",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "violations",
+                "history"
+              ]
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 200', () => pm.response.to.have.status(200));",
+                  "const j = pm.response.json();",
+                  "pm.test('has entry, exit, entry events with total_count', () => { pm.expect(j.total_count).to.be.at.least(3); ['id','vehicle_id','vehicle_number','geofence_id','geofence_name','event_type','latitude','longitude','timestamp'].forEach(k => pm.expect(j.violations[0]).to.have.property(k)); });",
+                  "pm.test('newest first', () => { const t = j.violations.map(v => Date.parse(v.timestamp)); pm.expect(t).to.eql([...t].sort((a, b) => b - a)); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "5.2 Violation history filtered by vehicle_id + limit",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/violations/history?vehicle_id={{vehicleId}}&limit=100",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "violations",
+                "history"
+              ],
+              "query": [
+                {
+                  "key": "vehicle_id",
+                  "value": "{{vehicleId}}"
+                },
+                {
+                  "key": "limit",
+                  "value": "100"
+                }
+              ]
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 200', () => pm.response.to.have.status(200));",
+                  "pm.test('only this vehicle, exactly 3 events', () => { const j = pm.response.json(); pm.expect(j.violations).to.have.length(3); j.violations.forEach(v => pm.expect(v.vehicle_id).to.eql(pm.collectionVariables.get('vehicleId'))); pm.expect(j.violations.map(v => v.event_type)).to.eql(['entry', 'exit', 'entry']); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "5.3 Violation history filtered by geofence_id",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/violations/history?geofence_id={{geofenceId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "violations",
+                "history"
+              ],
+              "query": [
+                {
+                  "key": "geofence_id",
+                  "value": "{{geofenceId}}"
+                }
+              ]
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 200', () => pm.response.to.have.status(200));",
+                  "pm.test('only the restricted zone', () => pm.response.json().violations.forEach(v => pm.expect(v.geofence_id).to.eql(pm.collectionVariables.get('geofenceId'))));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "5.4 Violation history with date range",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/violations/history?vehicle_id={{vehicleId}}&start_date={{startDate}}&end_date={{endDate}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "violations",
+                "history"
+              ],
+              "query": [
+                {
+                  "key": "vehicle_id",
+                  "value": "{{vehicleId}}"
+                },
+                {
+                  "key": "start_date",
+                  "value": "{{startDate}}"
+                },
+                {
+                  "key": "end_date",
+                  "value": "{{endDate}}"
+                }
+              ]
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.collectionVariables.set('startDate', new Date(Date.now() - 3600 * 1000).toISOString());",
+                  "pm.collectionVariables.set('endDate', new Date(Date.now() + 3600 * 1000).toISOString());"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 200', () => pm.response.to.have.status(200));",
+                  "pm.test('events inside the range', () => pm.expect(pm.response.json().total_count).to.eql(3));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "5.5 Violation history pagination (limit 2, offset 2)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/violations/history?vehicle_id={{vehicleId}}&limit=2&offset=2",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "violations",
+                "history"
+              ],
+              "query": [
+                {
+                  "key": "vehicle_id",
+                  "value": "{{vehicleId}}"
+                },
+                {
+                  "key": "limit",
+                  "value": "2"
+                },
+                {
+                  "key": "offset",
+                  "value": "2"
+                }
+              ]
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 200', () => pm.response.to.have.status(200));",
+                  "pm.test('second page has 1 row, total_count is 3', () => { const j = pm.response.json(); pm.expect(j.violations).to.have.length(1); pm.expect(j.total_count).to.eql(3); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "5.6 Recently delivered alerts (extra)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/alerts/events?limit=10",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "alerts",
+                "events"
+              ],
+              "query": [
+                {
+                  "key": "limit",
+                  "value": "10"
+                }
+              ]
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 200', () => pm.response.to.have.status(200));",
+                  "pm.test('alerts were generated for entry and exit', () => { const e = pm.response.json().events; pm.expect(e.length).to.be.at.least(3); const types = e.slice(0, 3).map(x => x.event_type); pm.expect(types).to.include.members(['entry', 'exit']); ['event_id','event_type','timestamp','vehicle','geofence','location'].forEach(k => pm.expect(e[0]).to.have.property(k)); });"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "6. Manage alert rules (extra)",
+      "item": [
+        {
+          "name": "6.1 Delete alert rule",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/alerts/{{alertId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "alerts",
+                "{{alertId}}"
+              ]
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 200', () => pm.response.to.have.status(200));",
+                  "pm.test('deleted', () => pm.expect(pm.response.json().deleted).to.eql(true));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "6.2 Delete the same alert rule again",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/alerts/{{alertId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "alerts",
+                "{{alertId}}"
+              ]
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 404', () => pm.response.to.have.status(404));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "7. Error handling (every request here should fail on purpose)",
+      "item": [
+        {
+          "name": "7.1 Geofence with invalid category",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/geofences",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "geofences"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"x\",\n  \"coordinates\": [\n    [\n      37.7749,\n      -122.4194\n    ],\n    [\n      37.7849,\n      -122.4194\n    ],\n    [\n      37.7849,\n      -122.4094\n    ],\n    [\n      37.7749,\n      -122.4094\n    ],\n    [\n      37.7749,\n      -122.4194\n    ]\n  ],\n  \"category\": \"nope\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 400', () => pm.response.to.have.status(400));",
+                  "pm.test('has an error message', () => pm.expect(pm.response.json().error).to.be.a('string').that.is.not.empty);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "7.2 Geofence with unclosed polygon",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/geofences",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "geofences"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"x\",\n  \"coordinates\": [\n    [\n      37.7749,\n      -122.4194\n    ],\n    [\n      37.7849,\n      -122.4194\n    ],\n    [\n      37.7849,\n      -122.4094\n    ],\n    [\n      37.7749,\n      -122.4094\n    ]\n  ],\n  \"category\": \"toll_zone\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 400', () => pm.response.to.have.status(400));",
+                  "pm.test('has an error message', () => pm.expect(pm.response.json().error).to.be.a('string').that.is.not.empty);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "7.3 Geofence with latitude out of range",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/geofences",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "geofences"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"x\",\n  \"coordinates\": [\n    [\n      95,\n      0\n    ],\n    [\n      0,\n      0\n    ],\n    [\n      0,\n      1\n    ],\n    [\n      95,\n      0\n    ]\n  ],\n  \"category\": \"toll_zone\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 400', () => pm.response.to.have.status(400));",
+                  "pm.test('has an error message', () => pm.expect(pm.response.json().error).to.be.a('string').that.is.not.empty);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "7.4 Geofence list with invalid category filter",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/geofences?category=bogus",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "geofences"
+              ],
+              "query": [
+                {
+                  "key": "category",
+                  "value": "bogus"
+                }
+              ]
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 400', () => pm.response.to.have.status(400));",
+                  "pm.test('has an error message', () => pm.expect(pm.response.json().error).to.be.a('string').that.is.not.empty);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "7.5 Vehicle with missing fields",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/vehicles",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "vehicles"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"vehicle_number\": \"ONLY-NUMBER\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 400', () => pm.response.to.have.status(400));",
+                  "pm.test('has an error message', () => pm.expect(pm.response.json().error).to.be.a('string').that.is.not.empty);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "7.6 Duplicate vehicle number",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/vehicles",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "vehicles"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"vehicle_number\": \"{{vehicleNumber}}\",\n  \"driver_name\": \"x\",\n  \"vehicle_type\": \"car\",\n  \"phone\": \"1\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 409', () => pm.response.to.have.status(409));",
+                  "pm.test('has an error message', () => pm.expect(pm.response.json().error).to.be.a('string').that.is.not.empty);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "7.7 Location for unknown vehicle",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/vehicles/location",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "vehicles",
+                "location"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"vehicle_id\": \"veh_doesnotexist\",\n  \"latitude\": 1,\n  \"longitude\": 1,\n  \"timestamp\": \"2025-01-15T10:35:00Z\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 404', () => pm.response.to.have.status(404));",
+                  "pm.test('has an error message', () => pm.expect(pm.response.json().error).to.be.a('string').that.is.not.empty);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "7.8 Location with latitude out of range",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/vehicles/location",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "vehicles",
+                "location"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"vehicle_id\": \"{{vehicleId}}\",\n  \"latitude\": 123,\n  \"longitude\": 1,\n  \"timestamp\": \"2025-01-15T10:35:00Z\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 400', () => pm.response.to.have.status(400));",
+                  "pm.test('has an error message', () => pm.expect(pm.response.json().error).to.be.a('string').that.is.not.empty);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "7.9 Location with bad timestamp",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/vehicles/location",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "vehicles",
+                "location"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"vehicle_id\": \"{{vehicleId}}\",\n  \"latitude\": 1,\n  \"longitude\": 1,\n  \"timestamp\": \"yesterday\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 400', () => pm.response.to.have.status(400));",
+                  "pm.test('has an error message', () => pm.expect(pm.response.json().error).to.be.a('string').that.is.not.empty);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "7.10 Get location of unknown vehicle",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/vehicles/location/veh_doesnotexist",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "vehicles",
+                "location",
+                "veh_doesnotexist"
+              ]
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 404', () => pm.response.to.have.status(404));",
+                  "pm.test('has an error message', () => pm.expect(pm.response.json().error).to.be.a('string').that.is.not.empty);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "7.11 Alert with invalid event_type",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/alerts/configure",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "alerts",
+                "configure"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"geofence_id\": \"{{geofenceId}}\",\n  \"event_type\": \"sometimes\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 400', () => pm.response.to.have.status(400));",
+                  "pm.test('has an error message', () => pm.expect(pm.response.json().error).to.be.a('string').that.is.not.empty);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "7.12 Alert for unknown geofence",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/alerts/configure",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "alerts",
+                "configure"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"geofence_id\": \"geo_doesnotexist\",\n  \"event_type\": \"entry\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 404', () => pm.response.to.have.status(404));",
+                  "pm.test('has an error message', () => pm.expect(pm.response.json().error).to.be.a('string').that.is.not.empty);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "7.13 History with invalid limit",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/violations/history?limit=abc",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "violations",
+                "history"
+              ],
+              "query": [
+                {
+                  "key": "limit",
+                  "value": "abc"
+                }
+              ]
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 400', () => pm.response.to.have.status(400));",
+                  "pm.test('has an error message', () => pm.expect(pm.response.json().error).to.be.a('string').that.is.not.empty);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "7.14 History with start_date after end_date",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/violations/history?start_date=2025-02-01T00:00:00Z&end_date=2025-01-01T00:00:00Z",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "violations",
+                "history"
+              ],
+              "query": [
+                {
+                  "key": "start_date",
+                  "value": "2025-02-01T00:00:00Z"
+                },
+                {
+                  "key": "end_date",
+                  "value": "2025-01-01T00:00:00Z"
+                }
+              ]
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 400', () => pm.response.to.have.status(400));",
+                  "pm.test('has an error message', () => pm.expect(pm.response.json().error).to.be.a('string').that.is.not.empty);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "7.15 Unknown route",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/does-not-exist",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "does-not-exist"
+              ]
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 404', () => pm.response.to.have.status(404));",
+                  "pm.test('has an error message', () => pm.expect(pm.response.json().error).to.be.a('string').that.is.not.empty);"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

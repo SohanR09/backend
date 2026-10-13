@@ -1,0 +1,57 @@
+# Runs the API AND its PostgreSQL in Docker. All data is stored in the named Docker volume "pgdata",
+# so it survives `docker compose down`, container rebuilds and restarts.
+# Start:            docker compose up --build
+# Stop (keep data): docker compose down
+# Delete all data:  docker compose down -v
+# Settings come from the ".env" file next to this file: copy .env.example to .env and set DB_PASSWORD first.
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: "${DB_USER:-geofence}"
+      POSTGRES_PASSWORD: "${DB_PASSWORD:?Set DB_PASSWORD in .env (copy .env.example to .env)}"
+      POSTGRES_DB: "${DB_NAME:-geofence}"
+    volumes:
+      # Named volume: managed by Docker, persists until you run "docker compose down -v".
+      - pgdata:/var/lib/postgresql/data
+    ports:
+      # Optional: lets you connect from the host (DBeaver, pgAdmin, psql, ...).
+      # Bound to 127.0.0.1 so it is not exposed on your network. Change DB_HOST_PORT if 5432 is taken.
+      - "127.0.0.1:${DB_HOST_PORT:-5432}:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
+
+  api:
+    build: .
+    image: geofence-api:latest
+    depends_on:
+      db:
+        condition: service_healthy
+    ports:
+      - "${PORT:-8080}:8080"
+    environment:
+      PORT: "8080"
+      # Inside the compose network the database is reachable as "db" on port 5432.
+      # DATABASE_URL is deliberately NOT passed through, so the API always uses this containerised database.
+      DB_HOST: "db"
+      DB_PORT: "5432"
+      DB_USER: "${DB_USER:-geofence}"
+      DB_PASSWORD: "${DB_PASSWORD:?Set DB_PASSWORD in .env (copy .env.example to .env)}"
+      DB_NAME: "${DB_NAME:-geofence}"
+      DB_SSLMODE: "disable"
+      # The database already exists (created by the postgres image), so no auto-create is needed.
+      DB_AUTO_CREATE: "false"
+      # Leave API_KEY empty to disable authentication.
+      API_KEY: "${API_KEY:-}"
+      RATE_LIMIT_PER_SEC: "${RATE_LIMIT_PER_SEC:-50}"
+      RATE_LIMIT_BURST: "${RATE_LIMIT_BURST:-100}"
+      TRUST_PROXY: "${TRUST_PROXY:-false}"
+      ALLOWED_ORIGIN: "${ALLOWED_ORIGIN:-*}"
+    restart: unless-stopped
+
+volumes:
+  pgdata:
