@@ -14,7 +14,7 @@ import (
 	"geofence/internal/model"
 )
 
-//go:embed schema.sql
+//go:embed migrations/schema.sql
 var schemaSQL string
 
 // queryTimeout bounds every database call made on behalf of a request.

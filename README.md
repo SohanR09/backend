@@ -7,7 +7,7 @@ locations, detect entry/exit events and push real-time alerts over WebSocket.
 - Every data route reads/writes PostgreSQL: geofences, vehicles, locations, alert rules, entry/exit history, delivered alerts
 - Point-in-polygon: GiST-indexed bounding-box lookup in Postgres, then exact ray-casting test (edge/vertex = inside)
 - WebSocket alerts at `/ws/alerts` (own RFC 6455 implementation, no extra library)
-- Postman collection with 125 automated assertions in [`postman/`](postman)
+- Postman collection with 125 automated assertions in [`docs/postman/`](docs/postman)
 
 ---
 
@@ -137,7 +137,7 @@ Prints `PASS`/`FAIL` for every check and ends with a summary. It can be run repe
 
 ### B. Postman
 
-1. Postman → **Import** → select both files from the `postman` folder:
+1. Postman → **Import** → select both files from the `docs/postman` folder:
    `Geofence-API.postman_collection.json` and `Geofence-Local.postman_environment.json`.
 2. Top-right environment dropdown → **Geofence API - local**.
 3. Open the collection → **Run** → **Run Geofence & Real-time Alert API**. It runs 42 requests in order, saves ids
@@ -553,14 +553,16 @@ Everything below lives in the `backend` folder; the repository root only contain
 
 ```
 backend/
-  cmd/server/main.go                entrypoint: env config, DB connection with retry, graceful shutdown
-  cmd/server/dbcreate.go            creates the database on first start when it does not exist
+  cmd/server/main.go                entrypoint: wires config, database, WebSocket hub and API; graceful shutdown
+  internal/config/                  environment settings (config.go) and DSN builder (dsn.go) (+ tests)
+  internal/database/                PostgreSQL connection pool with retry, first-start database creation (+ tests)
   internal/model/                   domain types and enums
   internal/geo/                     polygon validation, bounding box, point-in-polygon (+ tests)
-  internal/store/                   Store interface; postgres.go + schema.sql (production); memory.go (tests only)
+  internal/store/                   Store interface; postgres.go (production); memory.go (tests only);
+                                    migrations/schema.sql (embedded into the binary)
   internal/ws/                      WebSocket hub: handshake, framing, ping/pong, broadcast (+ tests)
   internal/api/                     handlers, time_ns wrapper, middleware (CORS, auth, rate limit), async alert delivery (+ tests)
-  postman/                          Postman collection + environment
+  docs/postman/                     Postman collection + environment
   scripts/smoke-test.ps1            PowerShell test of every route
   Dockerfile
   docker-compose.yml                API + PostgreSQL containers, data in the "pgdata" Docker volume (settings in .env)
