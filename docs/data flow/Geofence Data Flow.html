@@ -1,0 +1,367 @@
+<!doctype html><html><head><meta charset=utf8><meta name=viewport content="width=device-width,initial-scale=1,viewport-fit=cover"><style>:root{color-scheme:light;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}html{scroll-padding-top:env(safe-area-inset-top,0px)}body{margin:0;padding:0;font:14px -apple-system,BlinkMacSystemFont,sans-serif;background:#fff;color:#000}img{max-width:100%}[hidden]:not([hidden=until-found i]){display:none!important}</style></head><body>
+<title>Geofence Data Flow</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Instrument+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: one narrow reading column; each figure is a full-width, horizontally scrollable drawing followed by plain-language notes. */
+:root {
+  --bg: #f3f5f7;
+  --surface: #ffffff;
+  --fg: #13202b;
+  --muted: #566677;
+  --line: #c9d3dc;
+  --sync: #0a7771;
+  --sync-tint: #e3f2f0;
+  --async: #a85a05;
+  --async-tint: #fbefdc;
+  --chip: #e8edf2;
+  --font-body: "Instrument Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0e151c; --surface: #151f29; --fg: #e5ecf2; --muted: #93a3b2; --line: #2b3946;
+    --sync: #43c6be; --sync-tint: #12312f; --async: #f0a352; --async-tint: #35260f; --chip: #1f2c38;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0e151c; --surface: #151f29; --fg: #e5ecf2; --muted: #93a3b2; --line: #2b3946;
+  --sync: #43c6be; --sync-tint: #12312f; --async: #f0a352; --async-tint: #35260f; --chip: #1f2c38;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+body {
+  background: var(--bg); color: var(--fg); font-family: var(--font-body); font-size: 15px; line-height: 1.55;
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+  padding-block: 32px 64px;
+}
+main { max-width: 1000px; margin: 0 auto; display: flex; flex-direction: column; gap: 48px; }
+h1 { font-size: clamp(28px, 5vw, 40px); line-height: 1.1; margin: 0 0 12px; letter-spacing: -0.02em; text-wrap: balance; }
+h2 { font-size: 20px; margin: 0 0 6px; letter-spacing: -0.01em; text-wrap: balance; }
+p { margin: 0; max-width: 68ch; }
+.lede { color: var(--muted); font-size: 16px; }
+code, .mono { font-family: var(--font-mono); font-size: 0.88em; }
+section { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
+.legend { display: flex; flex-wrap: wrap; gap: 8px 20px; color: var(--muted); font-size: 13px; }
+.legend span { display: inline-flex; align-items: center; gap: 8px; }
+.legend i { display: inline-block; width: 28px; height: 0; border-top: 3px solid var(--sync); }
+.legend i.a { border-top-color: var(--async); }
+figure { margin: 0; display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+.scroll { overflow-x: auto; background: var(--surface); border: 1px solid var(--line); border-radius: 8px; }
+.scroll svg { display: block; min-width: 760px; width: 100%; height: auto; }
+figcaption { color: var(--muted); font-size: 13px; max-width: 72ch; }
+
+/* SVG parts */
+svg text { fill: var(--fg); font-family: var(--font-body); font-size: 13px; }
+svg .m { fill: var(--muted); font-size: 11.5px; }
+svg .mono { font-family: var(--font-mono); font-size: 12px; }
+svg .h { font-weight: 600; font-size: 14px; }
+svg .halo { paint-order: stroke; stroke: var(--surface); stroke-width: 4px; stroke-linejoin: round; }
+svg .box { fill: var(--surface); stroke: var(--line); stroke-width: 1.2; }
+svg .zone { fill: none; stroke: var(--line); stroke-width: 1.2; stroke-dasharray: 5 4; }
+svg .head { fill: var(--chip); stroke: var(--line); stroke-width: 1.2; }
+svg .life { stroke: var(--line); stroke-width: 1; stroke-dasharray: 3 4; }
+svg .bs { fill: var(--sync-tint); }
+svg .ba { fill: var(--async-tint); }
+svg .ls { stroke: var(--sync); stroke-width: 2; fill: none; }
+svg .la { stroke: var(--async); stroke-width: 2; fill: none; }
+svg .ret { stroke-dasharray: 5 4; }
+svg .as { fill: var(--sync); }
+svg .aa { fill: var(--async); }
+svg .tag-s { fill: var(--sync); font-weight: 600; font-size: 11.5px; }
+svg .tag-a { fill: var(--async); font-weight: 600; font-size: 11.5px; }
+svg .num { font-family: var(--font-mono); font-weight: 500; }
+
+/* Steps */
+ol.steps { margin: 0; padding: 0; list-style: none; display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 8px 32px; counter-reset: s; }
+ol.steps li { counter-increment: s; display: grid; grid-template-columns: 28px 1fr; gap: 10px; align-items: start; min-width: 0; }
+ol.steps li::before { content: counter(s); font-family: var(--font-mono); font-size: 12px; font-weight: 500; text-align: center; line-height: 22px; height: 22px; border-radius: 4px; background: var(--sync-tint); color: var(--sync); }
+ol.steps li.a::before { background: var(--async-tint); color: var(--async); }
+ol.steps li span { min-width: 0; }
+ol.steps li.cond em { color: var(--muted); font-style: normal; font-size: 13px; }
+
+/* Transition callout */
+.sets { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; }
+.set { background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 12px 14px; display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.set b { font-size: 12px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); font-weight: 600; }
+.chips { display: flex; gap: 6px; flex-wrap: wrap; }
+.chip { font-family: var(--font-mono); font-size: 12px; padding: 2px 8px; border-radius: 4px; background: var(--chip); }
+.chip.out { background: var(--async-tint); color: var(--async); }
+.chip.in { background: var(--sync-tint); color: var(--sync); }
+.set small { color: var(--muted); font-size: 13px; }
+
+/* Middleware chain */
+.chain { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 10px; counter-reset: c; }
+.chain li { counter-increment: c; flex: 1 1 150px; min-width: 0; background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; display: flex; flex-direction: column; gap: 4px; }
+.chain li::before { content: counter(c); font-family: var(--font-mono); font-size: 11px; color: var(--muted); }
+.chain li b { font-family: var(--font-mono); font-size: 13px; font-weight: 500; }
+.chain li span { color: var(--muted); font-size: 13px; }
+.chain li.route { border-color: var(--sync); }
+
+/* Route table */
+table { border-collapse: collapse; width: 100%; min-width: 760px; font-size: 13.5px; }
+th, td { text-align: left; padding: 8px 12px; border-bottom: 1px solid var(--line); vertical-align: top; }
+th { font-size: 11.5px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); font-weight: 600; background: var(--chip); }
+tr:last-child td { border-bottom: 0; }
+td.r { font-family: var(--font-mono); font-size: 12.5px; white-space: nowrap; }
+.tb { display: flex; flex-wrap: wrap; gap: 4px; }
+.tb span { font-family: var(--font-mono); font-size: 11.5px; padding: 1px 6px; border-radius: 4px; background: var(--chip); white-space: nowrap; }
+.tb span.w { background: var(--async-tint); color: var(--async); }
+.note { background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 12px 14px; color: var(--muted); font-size: 13.5px; max-width: none; }
+.note b { color: var(--fg); font-weight: 600; }
+</style>
+
+<main>
+  <header>
+    <h1>Geofence data flow</h1>
+    <p class="lede">How a vehicle position travels through the Go backend, what gets stored in PostgreSQL, and how the dashboard receives alerts.</p>
+  </header>
+
+  <section>
+    <div>
+      <h2>System overview</h2>
+    </div>
+    <div class="legend" aria-hidden="true">
+      <span><i></i> request path, answered before the response is sent</span>
+      <span><i class="a"></i> background path, runs after the response</span>
+    </div>
+    <figure>
+      <div class="scroll">
+        <svg viewBox="0 0 960 450" role="img" aria-label="Vehicles and the dashboard call the Go API. The API reads and writes PostgreSQL. Alert events are queued to a background worker, saved, and pushed over WebSocket to the dashboard.">
+          <defs>
+            <marker id="ahs" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto"><path class="as" d="M0 0L10 5L0 10z"/></marker>
+            <marker id="aha" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto"><path class="aa" d="M0 0L10 5L0 10z"/></marker>
+            <marker id="ahsr" viewBox="0 0 10 10" refX="1" refY="5" markerWidth="8" markerHeight="8" orient="auto"><path class="as" d="M10 0L0 5L10 10z"/></marker>
+          </defs>
+
+          <!-- clients -->
+          <rect class="box" x="20" y="50" width="160" height="64" rx="6"/>
+          <text class="h" x="34" y="78">Vehicle / GPS source</text>
+          <text class="m" x="34" y="97">reports positions</text>
+
+          <rect class="box" x="20" y="300" width="160" height="100" rx="6"/>
+          <text class="h" x="34" y="332">Dashboard</text>
+          <text class="m" x="34" y="352">frontend, not built yet</text>
+          <text class="m" x="34" y="370">map + alert feed</text>
+
+          <!-- API -->
+          <rect class="zone" x="300" y="24" width="340" height="402" rx="10"/>
+          <text class="mono m" x="316" y="46">Go API  :8080</text>
+
+          <rect class="box" x="320" y="62" width="300" height="56" rx="6"/>
+          <text class="h" x="334" y="86">Middleware chain</text>
+          <text class="m" x="334" y="105">recover, CORS, log, API key, 1 MiB cap</text>
+
+          <rect class="box" x="320" y="150" width="300" height="56" rx="6"/>
+          <text class="h" x="334" y="174">Handlers</text>
+          <text class="m" x="334" y="193">validate, match geofences, find transitions</text>
+
+          <rect class="box" x="320" y="262" width="300" height="56" rx="6"/>
+          <text class="h" x="334" y="286">Alert worker</text>
+          <text class="m" x="334" y="305">queue of 1,024, then store, then broadcast</text>
+
+          <rect class="box" x="320" y="350" width="300" height="56" rx="6"/>
+          <text class="h" x="334" y="374">WebSocket hub</text>
+          <text class="m" x="334" y="393">/ws/alerts, fans out to every client</text>
+
+          <!-- Postgres -->
+          <rect class="box" x="730" y="24" width="210" height="402" rx="10"/>
+          <text class="h" x="746" y="50">PostgreSQL</text>
+          <g class="mono">
+            <text x="746" y="86">geofences</text>
+            <text x="746" y="116">vehicles</text>
+            <text x="746" y="146">vehicle_locations</text>
+            <text x="746" y="176">vehicle_geofence_state</text>
+            <text x="746" y="206">alert_rules</text>
+            <text x="746" y="236">violations</text>
+            <text x="746" y="266">alert_events</text>
+          </g>
+          <text class="m" x="746" y="372">Schema is applied at startup</text>
+          <text class="m" x="746" y="390">from the embedded schema.sql</text>
+
+          <!-- flows -->
+          <line class="ls" x1="180" y1="82" x2="318" y2="82" marker-end="url(#ahs)"/>
+          <text class="m halo" x="188" y="73">POST location</text>
+
+          <path class="ls" d="M180 330 H250 V100 H318" marker-end="url(#ahs)"/>
+          <text class="m halo" x="186" y="322">REST/JSON</text>
+
+          <line class="ls" x1="470" y1="118" x2="470" y2="148" marker-end="url(#ahs)"/>
+          <text class="m" x="480" y="138">request</text>
+
+          <line class="la" x1="470" y1="206" x2="470" y2="260" marker-end="url(#aha)"/>
+          <text class="m" x="480" y="238">enqueue(AlertEvent)</text>
+
+          <line class="la" x1="470" y1="318" x2="470" y2="348" marker-end="url(#aha)"/>
+          <text class="m" x="480" y="338">Broadcast</text>
+
+          <line class="ls" x1="622" y1="178" x2="728" y2="178" marker-start="url(#ahsr)" marker-end="url(#ahs)"/>
+          <text class="m" x="660" y="168">SQL</text>
+
+          <line class="la" x1="622" y1="290" x2="728" y2="290" marker-end="url(#aha)"/>
+          <text class="m" x="650" y="280">INSERT</text>
+
+          <line class="la" x1="318" y1="378" x2="182" y2="378" marker-end="url(#aha)"/>
+          <text class="m halo" x="190" y="369">WS push</text>
+        </svg>
+      </div>
+      <figcaption>Positions and dashboard requests enter through the same middleware chain. Only the alert path leaves the request: the handler queues the event, and a worker stores it and broadcasts it over WebSocket.</figcaption>
+    </figure>
+  </section>
+
+  <section>
+    <div>
+      <h2>One position update, end to end</h2>
+    </div>
+    <figure>
+      <div class="scroll">
+        <svg viewBox="0 0 960 560" role="img" aria-label="Sequence of a position update: the handler loads the vehicle, finds containing geofences, saves the location, records violations, checks alert rules, queues an event and returns 200. A worker then stores the event and the WebSocket hub pushes it to the dashboard.">
+          <defs>
+            <marker id="s-ahs" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto"><path class="as" d="M0 0L10 5L0 10z"/></marker>
+            <marker id="s-aha" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto"><path class="aa" d="M0 0L10 5L0 10z"/></marker>
+          </defs>
+
+          <rect class="bs" x="0" y="72" width="960" height="330"/>
+          <rect class="ba" x="0" y="412" width="960" height="136"/>
+          <text class="tag-s" x="946" y="90" text-anchor="end">REQUEST PATH</text>
+          <text class="tag-a" x="946" y="430" text-anchor="end">BACKGROUND WORKER</text>
+
+          <!-- lifelines -->
+          <g>
+            <line class="life" x1="70" y1="56" x2="70" y2="548"/>
+            <line class="life" x1="250" y1="56" x2="250" y2="548"/>
+            <line class="life" x1="420" y1="56" x2="420" y2="548"/>
+            <line class="life" x1="590" y1="56" x2="590" y2="548"/>
+            <line class="life" x1="745" y1="56" x2="745" y2="548"/>
+            <line class="life" x1="890" y1="56" x2="890" y2="548"/>
+          </g>
+          <g>
+            <rect class="head" x="10" y="14" width="120" height="40" rx="6"/><text class="h" x="70" y="39" text-anchor="middle">Vehicle</text>
+            <rect class="head" x="190" y="14" width="120" height="40" rx="6"/><text class="h" x="250" y="39" text-anchor="middle">API handler</text>
+            <rect class="head" x="360" y="14" width="120" height="40" rx="6"/><text class="h" x="420" y="39" text-anchor="middle">PostgreSQL</text>
+            <rect class="head" x="530" y="14" width="120" height="40" rx="6"/><text class="h" x="590" y="39" text-anchor="middle">Alert worker</text>
+            <rect class="head" x="685" y="14" width="120" height="40" rx="6"/><text class="h" x="745" y="39" text-anchor="middle">WS hub</text>
+            <rect class="head" x="830" y="14" width="120" height="40" rx="6"/><text class="h" x="890" y="39" text-anchor="middle">Dashboard</text>
+          </g>
+
+          <!-- request path -->
+          <line class="ls" x1="70" y1="112" x2="248" y2="112" marker-end="url(#s-ahs)"/>
+          <text class="mono halo" x="78" y="104"><tspan class="num">1</tspan>  POST /vehicles/location</text>
+
+          <line class="ls" x1="250" y1="152" x2="418" y2="152" marker-end="url(#s-ahs)"/>
+          <text class="mono halo" x="258" y="144"><tspan class="num">2</tspan>  GetVehicle(id)</text>
+
+          <line class="ls" x1="250" y1="192" x2="418" y2="192" marker-end="url(#s-ahs)"/>
+          <text class="mono halo" x="258" y="184"><tspan class="num">3</tspan>  GeofencesContaining(lat, lon)</text>
+
+          <line class="ls" x1="250" y1="232" x2="418" y2="232" marker-end="url(#s-ahs)"/>
+          <text class="mono halo" x="258" y="224"><tspan class="num">4</tspan>  ApplyLocation(loc, insideIDs)</text>
+
+          <line class="ls" x1="250" y1="272" x2="418" y2="272" marker-end="url(#s-ahs)"/>
+          <text class="mono halo" x="258" y="264"><tspan class="num">5</tspan>  AddViolation(entry | exit)</text>
+
+          <line class="ls" x1="250" y1="312" x2="418" y2="312" marker-end="url(#s-ahs)"/>
+          <text class="mono halo" x="258" y="304"><tspan class="num">6</tspan>  HasActiveAlertRule(...)</text>
+
+          <line class="ls" x1="250" y1="352" x2="588" y2="352" marker-end="url(#s-ahs)"/>
+          <text class="mono halo" x="258" y="344"><tspan class="num">7</tspan>  enqueue(AlertEvent)</text>
+
+          <line class="ls ret" x1="248" y1="388" x2="72" y2="388" marker-end="url(#s-ahs)"/>
+          <text class="mono halo" x="78" y="380"><tspan class="num">8</tspan>  200 current_geofences</text>
+
+          <!-- background -->
+          <line class="la" x1="590" y1="452" x2="422" y2="452" marker-end="url(#s-aha)"/>
+          <text class="mono halo" x="430" y="444"><tspan class="num">9</tspan>  AddAlertEvent</text>
+
+          <line class="la" x1="590" y1="492" x2="743" y2="492" marker-end="url(#s-aha)"/>
+          <text class="mono halo" x="598" y="484"><tspan class="num">10</tspan>  Broadcast(JSON)</text>
+
+          <line class="la" x1="745" y1="532" x2="888" y2="532" marker-end="url(#s-aha)"/>
+          <text class="mono halo" x="753" y="524"><tspan class="num">11</tspan>  WS message</text>
+        </svg>
+      </div>
+      <figcaption>The vehicle gets its answer at step 8. Steps 9 to 11 happen afterwards, so a slow database write or a slow WebSocket client never delays the position update.</figcaption>
+    </figure>
+
+    <ol class="steps">
+      <li><span>The vehicle sends <code>vehicle_id</code>, <code>latitude</code>, <code>longitude</code> and an ISO 8601 <code>timestamp</code>. This route is rate limited per client.</span></li>
+      <li><span>The handler validates the body, then loads the vehicle. Unknown vehicles get a 404.</span></li>
+      <li><span>The store returns every geofence whose polygon contains the point, boundary included.</span></li>
+      <li><span>The location is saved. If it is the newest one for that vehicle, the stored set of geofences it is inside is replaced in the same step, and the previous set is returned.</span></li>
+      <li class="cond"><span>Each difference between the previous and new set becomes a row in <code>violations</code>. <em>Newest locations only.</em></span></li>
+      <li class="cond"><span>For each entry or exit, the store checks for an active alert rule for that vehicle and geofence. <em>Several matching rules still give one alert.</em></span></li>
+      <li class="cond"><span>A matching event goes onto an in-memory queue without blocking. <em>Only when a rule matched.</em></span></li>
+      <li><span>The response lists the geofences the vehicle is now inside, plus <code>time_ns</code>. An out-of-order older report is stored but leaves the state unchanged.</span></li>
+      <li class="a"><span>The worker saves the event in <code>alert_events</code>, which is what <code>GET /alerts/events</code> reads later.</span></li>
+      <li class="a"><span>The event is encoded as JSON and handed to the hub.</span></li>
+      <li class="a"><span>The hub writes it to every connected WebSocket client, so the dashboard updates without polling.</span></li>
+    </ol>
+
+    <div class="sets" aria-label="Example of how entry and exit are decided">
+      <div class="set">
+        <b>Stored before</b>
+        <div class="chips"><span class="chip">depot</span><span class="chip">zone-A</span></div>
+        <small>from <code>vehicle_geofence_state</code></small>
+      </div>
+      <div class="set">
+        <b>Inside now</b>
+        <div class="chips"><span class="chip">zone-A</span><span class="chip">airport</span></div>
+        <small>from the point-in-polygon match</small>
+      </div>
+      <div class="set">
+        <b>Events recorded</b>
+        <div class="chips"><span class="chip out">exit depot</span><span class="chip in">entry airport</span></div>
+        <small>zone-A is in both sets, so nothing happens for it</small>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <div>
+      <h2>What every request passes through</h2>
+    </div>
+    <ol class="chain">
+      <li><b>recoverer</b><span>A panic becomes a JSON 500 instead of a dropped connection.</span></li>
+      <li><b>cors</b><span>Adds the allowed origin so the browser frontend can call the API.</span></li>
+      <li><b>logger</b><span>Logs method, path and status.</span></li>
+      <li><b>auth</b><span>Needs an API key when one is set. <code>/health</code> is exempt. The WebSocket may pass it as <code>?api_key=</code>.</span></li>
+      <li><b>limitBody</b><span>Caps request bodies at 1 MiB (413 above that).</span></li>
+      <li><b>router</b><span>Matches method and path, then wraps the result with <code>time_ns</code>.</span></li>
+      <li class="route"><b>rateLimit</b><span>Only on <code>POST /vehicles/location</code>. Over the limit gets a 429 with Retry-After.</span></li>
+    </ol>
+  </section>
+
+  <section>
+    <div>
+      <h2>What the dashboard calls</h2>
+    </div>
+    <div class="scroll">
+      <table>
+        <thead><tr><th>Dashboard action</th><th>Request</th><th>Tables read or written</th></tr></thead>
+        <tbody>
+          <tr><td>Draw a zone</td><td class="r">POST /geofences</td><td><div class="tb"><span class="w">geofences</span></div></td></tr>
+          <tr><td>Show zones, filter by category</td><td class="r">GET /geofences</td><td><div class="tb"><span>geofences</span></div></td></tr>
+          <tr><td>Register a vehicle</td><td class="r">POST /vehicles</td><td><div class="tb"><span class="w">vehicles</span></div></td></tr>
+          <tr><td>List vehicles</td><td class="r">GET /vehicles</td><td><div class="tb"><span>vehicles</span></div></td></tr>
+          <tr><td>Draw all vehicle markers</td><td class="r">GET /vehicles/locations</td><td><div class="tb"><span>vehicles</span><span>vehicle_locations</span><span>vehicle_geofence_state</span></div></td></tr>
+          <tr><td>Open one vehicle</td><td class="r">GET /vehicles/location/{id}</td><td><div class="tb"><span>vehicles</span><span>vehicle_locations</span><span>vehicle_geofence_state</span></div></td></tr>
+          <tr><td>Report a position</td><td class="r">POST /vehicles/location</td><td><div class="tb"><span>vehicles</span><span>geofences</span><span class="w">vehicle_locations</span><span class="w">vehicle_geofence_state</span><span class="w">violations</span><span>alert_rules</span><span class="w">alert_events (worker)</span></div></td></tr>
+          <tr><td>Create an alert rule</td><td class="r">POST /alerts/configure</td><td><div class="tb"><span>geofences</span><span>vehicles</span><span class="w">alert_rules</span></div></td></tr>
+          <tr><td>List alert rules</td><td class="r">GET /alerts</td><td><div class="tb"><span>alert_rules</span></div></td></tr>
+          <tr><td>Delete an alert rule</td><td class="r">DELETE /alerts/{id}</td><td><div class="tb"><span class="w">alert_rules</span></div></td></tr>
+          <tr><td>Fill the alert feed on page load</td><td class="r">GET /alerts/events?limit=50</td><td><div class="tb"><span>alert_events</span></div></td></tr>
+          <tr><td>Browse violation history</td><td class="r">GET /violations/history</td><td><div class="tb"><span>violations</span></div></td></tr>
+          <tr><td>Receive live alerts</td><td class="r">WS /ws/alerts</td><td><div class="tb"><span>none, held in memory by the hub</span></div></td></tr>
+          <tr><td>Check the server is up</td><td class="r">GET /health</td><td><div class="tb"><span>none</span></div></td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p class="note"><b>Highlighted tables are written to.</b> The frontend folder is still empty, so the dashboard column describes how these routes would naturally be used. The backend side of the diagram comes straight from the code.</p>
+  </section>
+</main>
+
+</body></html>

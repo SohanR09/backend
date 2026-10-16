@@ -1,0 +1,131 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Fenceline: End-to-End Data Flow</title>
+<style>
+:root{--bg:#f4f6f8;--card:#fff;--fg:#14212b;--mut:#5a6b7a;--line:#cbd5dd;--teal:#0b7a75;--tealt:#e1f1ef;--amb:#a65a05;--ambt:#fbeedb;--blu:#1f5fa8;--blut:#e4eefa;--red:#b3261e;--redt:#fbe6e4;
+box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+@media(prefers-color-scheme:dark){:root:not([data-theme=light]){--bg:#0f161c;--card:#18222b;--fg:#e6edf3;--mut:#9aabb9;--line:#2f3e4b;--teal:#3cc4bb;--tealt:#143533;--amb:#f0a54a;--ambt:#3a2a12;--blu:#7db3f0;--blut:#162a40;--red:#ff8a80;--redt:#3d1a18}}
+:root[data-theme=dark]{--bg:#0f161c;--card:#18222b;--fg:#e6edf3;--mut:#9aabb9;--line:#2f3e4b;--teal:#3cc4bb;--tealt:#143533;--amb:#f0a54a;--ambt:#3a2a12;--blu:#7db3f0;--blut:#162a40;--red:#ff8a80;--redt:#3d1a18}
+html{scroll-padding-top:env(safe-area-inset-top,0px)}
+body{margin:0;background:var(--bg);color:var(--fg);font:15px/1.55 system-ui,-apple-system,"Segoe UI",sans-serif}
+main{max-width:980px;margin:0 auto;padding:20px 16px 48px}
+h1{font-size:26px;margin:4px 0 6px}h2{font-size:19px;margin:34px 0 8px;border-bottom:2px solid var(--line);padding-bottom:6px}h3{font-size:15px;margin:18px 0 4px}
+p{margin:6px 0}.sub{color:var(--mut)}code{font:12.5px ui-monospace,Menlo,Consolas,monospace;background:var(--bg);border:1px solid var(--line);border-radius:4px;padding:0 4px}
+.pitch{background:var(--card);border-left:4px solid var(--teal);padding:10px 14px;border-radius:6px;margin:14px 0}
+.fig{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:8px;overflow-x:auto}
+.fig svg{min-width:720px;width:100%;height:auto;display:block}
+svg text{fill:var(--fg);font:12px system-ui,sans-serif}svg .m{fill:var(--mut);font-size:10.5px}svg .b{font-weight:700}
+svg .box{fill:var(--card);stroke:var(--line);stroke-width:1.4}svg .t{fill:var(--tealt);stroke:var(--teal);stroke-width:1.4}svg .a{fill:var(--ambt);stroke:var(--amb);stroke-width:1.4}svg .u{fill:var(--blut);stroke:var(--blu);stroke-width:1.4}
+svg .ln{stroke:var(--fg);stroke-width:1.5;fill:none}svg .as{stroke:var(--amb);stroke-width:1.8;fill:none;stroke-dasharray:6 4}svg .sy{stroke:var(--teal);stroke-width:1.8;fill:none}
+.lg{display:flex;gap:14px;flex-wrap:wrap;font-size:13px;color:var(--mut);margin:8px 0}.lg i{display:inline-block;width:14px;height:10px;border-radius:2px;margin-right:5px;vertical-align:middle}
+ol.st{list-style:none;counter-reset:s;padding:0;margin:10px 0}ol.st li{counter-increment:s;position:relative;background:var(--card);border:1px solid var(--line);border-radius:8px;padding:9px 12px 9px 46px;margin:7px 0}
+ol.st li:before{content:counter(s);position:absolute;left:12px;top:9px;width:24px;height:24px;border-radius:50%;background:var(--teal);color:var(--bg);font-weight:700;text-align:center;line-height:24px;font-size:13px}
+ol.st li.as:before{background:var(--amb)}ol.st li b{display:block}
+.tag{font-size:11px;font-weight:700;border-radius:99px;padding:1px 8px;margin-left:6px;vertical-align:middle}.ts{background:var(--tealt);color:var(--teal)}.ta{background:var(--ambt);color:var(--amb)}
+.tw{overflow-x:auto}table{border-collapse:collapse;width:100%;min-width:640px;background:var(--card);font-size:13.5px}th,td{border:1px solid var(--line);padding:7px 9px;text-align:left;vertical-align:top}th{background:var(--bg)}
+.q{background:var(--card);border:1px solid var(--line);border-radius:8px;padding:10px 14px;margin:8px 0}.q b{color:var(--teal)}
+.lim{border-left:4px solid var(--amb)}.lim b{color:var(--amb)}
+</style></head><body><main>
+<h1>Fenceline: End-to-End Data Flow</h1>
+<p class="sub">Geofencing and real-time vehicle alerts. React 19 + Redux Toolkit + Leaflet frontend, Go 1.24 API, PostgreSQL 16, own WebSocket hub.</p>
+<div class="pitch"><b>30-second pitch:</b> A vehicle position is posted to the API. The server finds which zones contain it (GiST bounding-box index, then exact ray casting), compares that set with the vehicle's previous set to detect <i>entry</i> and <i>exit</i>, writes every transition to history, and, only if an alert rule matches, hands the alert to a background worker that stores it and pushes it over WebSocket to every open dashboard. The HTTP response never waits for the push.</div>
+
+<h2>1. System map</h2>
+<div class="lg"><span><i style="background:var(--tealt);border:1px solid var(--teal)"></i>Synchronous (request path)</span><span><i style="background:var(--ambt);border:1px solid var(--amb)"></i>Asynchronous (off request path)</span><span><i style="background:var(--blut);border:1px solid var(--blu)"></i>Client</span></div>
+<div class="fig"><svg viewBox="0 0 960 420" role="img" aria-label="System architecture">
+<defs><marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="context-stroke"/></marker></defs>
+<rect class="u" x="10" y="20" width="250" height="380" rx="10"/><text class="b" x="24" y="42">BROWSER (SPA on Vercel/Netlify)</text>
+<rect class="box" x="26" y="56" width="218" height="46" rx="6"/><text x="36" y="76">Pages: Live, Zones, Vehicles,</text><text x="36" y="92">Rules, History (React Router)</text>
+<rect class="box" x="26" y="114" width="218" height="62" rx="6"/><text class="b" x="36" y="133">Redux store (5 slices)</text><text class="m" x="36" y="149">geofences, vehicles, alerts,</text><text class="m" x="36" y="163">history, ui (toast/focus/pulse)</text>
+<rect class="box" x="26" y="188" width="218" height="46" rx="6"/><text class="b" x="36" y="207">api.ts</text><text class="m" x="36" y="223">one fetch wrapper, typed endpoints</text>
+<rect class="box" x="26" y="246" width="218" height="46" rx="6"/><text class="b" x="36" y="265">socket.ts</text><text class="m" x="36" y="281">1 WebSocket, backoff 1s to 15s</text>
+<rect class="box" x="26" y="304" width="218" height="40" rx="6"/><text class="b" x="36" y="322">MapView (Leaflet + OSM tiles)</text><text class="m" x="36" y="336">draws zones, vehicles, drafts</text>
+<rect class="box" x="26" y="354" width="218" height="34" rx="6"/><text class="m" x="36" y="375">config.js: API_URL read at runtime</text>
+
+<rect class="t" x="340" y="20" width="330" height="380" rx="10"/><text class="b" x="354" y="42">GO API (Railway / Docker, :8080)</text>
+<rect class="box" x="356" y="56" width="298" height="58" rx="6"/><text class="b" x="366" y="75">Middleware chain</text><text class="m" x="366" y="91">recover, CORS, log, API key, 1 MiB body,</text><text class="m" x="366" y="104">token-bucket rate limit (location route only)</text>
+<rect class="box" x="356" y="124" width="298" height="46" rx="6"/><text class="b" x="366" y="143">Handlers</text><text class="m" x="366" y="159">validate, orchestrate, add time_ns</text>
+<rect class="box" x="356" y="180" width="298" height="46" rx="6"/><text class="b" x="366" y="199">geo package</text><text class="m" x="366" y="215">bbox, validation, point-in-polygon</text>
+<rect class="box" x="356" y="236" width="298" height="46" rx="6"/><text class="b" x="366" y="255">Store interface</text><text class="m" x="366" y="271">Postgres (prod), Memory (tests)</text>
+<rect class="a" x="356" y="294" width="298" height="46" rx="6"/><text class="b" x="366" y="313">Alert queue + delivery worker</text><text class="m" x="366" y="329">chan(1024), persists then broadcasts</text>
+<rect class="a" x="356" y="350" width="298" height="40" rx="6"/><text class="b" x="366" y="368">WebSocket Hub /ws/alerts</text><text class="m" x="366" y="382">RFC 6455, send buffer 64 per client</text>
+
+<rect class="box" x="750" y="20" width="200" height="190" rx="10"/><text class="b" x="764" y="42">POSTGRESQL 16</text>
+<text class="m" x="764" y="62">geofences (JSONB + GiST bbox)</text><text class="m" x="764" y="80">vehicles</text><text class="m" x="764" y="98">vehicle_locations (history)</text><text class="m" x="764" y="116">vehicle_geofence_state</text><text class="m" x="764" y="134">alert_rules</text><text class="m" x="764" y="152">violations (entry/exit log)</text><text class="m" x="764" y="170">alert_events (JSONB)</text><text class="m" x="764" y="194">volume: pgdata</text>
+
+<path class="sy" d="M244 211H340" marker-end="url(#ar)"/><text class="m" x="250" y="203">REST/JSON</text>
+<path class="as" d="M340 268H244" marker-end="url(#ar)" style="display:none"/>
+<path class="as" d="M356 370H300V269H244" marker-end="url(#ar)"/><text class="m" x="262" y="364">WS push</text>
+<path class="sy" d="M654 259H750V150" marker-end="url(#ar)"/><text class="m" x="680" y="251">SQL (pgx pool, max 20)</text>
+<path class="as" d="M654 318H720V190H750" marker-end="url(#ar)"/><text class="m" x="662" y="312">INSERT alert_events</text>
+<path class="as" d="M505 340V350" marker-end="url(#ar)"/>
+</svg></div>
+
+<h2>2. Core flow: a vehicle position becomes an alert</h2>
+<p class="sub">Triggered from the Live page: pick a vehicle, click the map. <code>onPick</code> dispatches the <code>sendLocation</code> thunk.</p>
+<div class="fig"><svg viewBox="0 0 960 330" role="img" aria-label="Location update sequence">
+<defs><marker id="a2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="context-stroke"/></marker></defs>
+<g class="b"><text x="50" y="22">Browser</text><text x="215" y="22">Handler</text><text x="385" y="22">Postgres</text><text x="540" y="22">Queue/Worker</text><text x="720" y="22">WS Hub</text><text x="860" y="22">All browsers</text></g>
+<g stroke="var(--line)" stroke-width="1.5" stroke-dasharray="3 4"><path d="M80 30V320"/><path d="M240 30V320"/><path d="M410 30V320"/><path d="M580 30V320"/><path d="M745 30V320"/><path d="M900 30V320"/></g>
+<path class="sy" d="M80 50H240" marker-end="url(#a2)"/><text class="m" x="92" y="45">1 POST /vehicles/location</text>
+<path class="sy" d="M240 78H410" marker-end="url(#a2)"/><text class="m" x="250" y="73">2 GetVehicle, 3 zones containing (GiST)</text>
+<path class="sy" d="M240 112H410" marker-end="url(#a2)"/><text class="m" x="250" y="107">4 TX: lock row, insert, swap state</text>
+<path class="sy" d="M410 134H240" marker-end="url(#a2)"/><text class="m" x="258" y="130">previous zones + isLatest</text>
+<path class="sy" d="M240 162H410" marker-end="url(#a2)"/><text class="m" x="250" y="157">5 AddViolation, 6 HasActiveAlertRule</text>
+<path class="as" d="M240 190H580" marker-end="url(#a2)"/><text class="m" x="300" y="185">7 enqueue(AlertEvent), non-blocking</text>
+<path class="sy" d="M240 224H80" marker-end="url(#a2)"/><text class="m" x="96" y="219">8 200 OK + current_geofences</text>
+<path class="as" d="M580 252H410" marker-end="url(#a2)"/><text class="m" x="425" y="247">9 INSERT alert_events</text>
+<path class="as" d="M580 280H745" marker-end="url(#a2)"/><text class="m" x="600" y="275">10 Broadcast(JSON)</text>
+<path class="as" d="M745 306H900" marker-end="url(#a2)"/><text class="m" x="765" y="301">11 text frame</text>
+</svg></div>
+<ol class="st">
+<li><b>Browser sends the position <span class="tag ts">sync</span></b><code>api.sendLocation</code> posts <code>{vehicle_id, latitude, longitude, timestamp}</code>; the timestamp is the browser's <code>new Date().toISOString()</code>. The <code>X-API-Key</code> header is added only if configured.</li>
+<li><b>Middleware <span class="tag ts">sync</span></b>Order: <code>recoverer, cors, logger, auth, limitBody, mux</code>. Auth uses constant-time compare. The per-IP token bucket (50/s, burst 100) wraps only this route; excess gets <code>429 + Retry-After</code>. <code>handle()</code> then times the handler and adds <code>time_ns</code>.</li>
+<li><b>Validate, load vehicle <span class="tag ts">sync</span></b>Finite numbers, lat in [-90,90], lon in [-180,180], RFC 3339 timestamp, vehicle must exist (404 otherwise).</li>
+<li><b>Which zones contain the point? (two-phase) <span class="tag ts">sync</span></b>Phase 1: <code>bbox @> degenerate box(point)</code> uses the GiST index, so only a few candidate polygons come back. Phase 2: exact even-odd ray casting in Go; a point on an edge or vertex counts as inside.</li>
+<li><b>Atomic state change per vehicle <span class="tag ts">sync</span></b>One transaction: <code>SELECT ... FOR UPDATE</code> on the vehicle row (serialises concurrent updates for that vehicle), compute <code>max(recorded_at)</code> to decide <i>isLatest</i>, insert into <code>vehicle_locations</code>, read the previous zone set, and only if latest replace <code>vehicle_geofence_state</code>. An older, out-of-order report is stored but changes no state and fires no events.</li>
+<li><b>Transition detection <span class="tag ts">sync</span></b>Set difference: in <i>now</i> but not <i>before</i> = entry; in <i>before</i> but not <i>now</i> = exit. The first ever report inside a zone counts as an entry.</li>
+<li><b>History always, alert only if a rule matches <span class="tag ts">sync</span></b>Every transition is written to <code>violations</code>. <code>HasActiveAlertRule</code> checks rules where the vehicle is NULL (all) or equal, and the event type is <code>both</code> or equal. Several matching rules still produce one alert.</li>
+<li><b>Hand off, do not wait <span class="tag ta">async</span></b><code>enqueue</code> pushes to a buffered channel (1024). If it is full, a goroutine retries for 5 s, then logs a drop. The HTTP response is returned immediately with the current zones.</li>
+<li><b>Worker persists then broadcasts <span class="tag ta">async</span></b><code>deliver</code> inserts into <code>alert_events</code> (JSONB), then <code>Hub.Broadcast</code> puts the payload into each client's 64-slot channel. A client whose buffer is full is dropped, so one slow tab cannot stall the rest.</li>
+<li><b>Browser reacts <span class="tag ta">async</span></b><code>socket.onmessage</code> checks the shape with <code>isAlert</code>, then dispatches <code>alertReceived</code> (de-duplicated by <code>event_id</code>, feed capped at 100), <code>pulseVehicle</code> (marker flashes), and <code>fetchLocations</code> (marker moves, inside/outside colour updates).</li>
+</ol>
+
+<h2>3. Read and CRUD flows per page</h2>
+<div class="tw"><table><thead><tr><th>Page</th><th>User action</th><th>Thunk, endpoint</th><th>Backend work</th><th>Tables</th></tr></thead><tbody>
+<tr><td><b>Live</b> <code>/</code></td><td>Open page; every 10 s; after each alert</td><td><code>fetchGeofences, fetchVehicles, fetchLocations, fetchEvents</code><br>GET /geofences, /vehicles, /vehicles/locations, /alerts/events</td><td>Latest location + current zones per vehicle; last 50-100 alert events</td><td>vehicle_locations, vehicle_geofence_state, alert_events</td></tr>
+<tr><td><b>Zones</b></td><td>Click corners, name, save</td><td><code>createGeofence</code> then <code>fetchGeofences</code><br>POST /geofences</td><td>Client closes the ring (first point repeated). Server: name, category enum, 4+ points, closed, ranges, max 10 000 points; computes bbox; inserts</td><td>geofences</td></tr>
+<tr><td><b>Vehicles</b></td><td>Register vehicle</td><td><code>createVehicle</code> then <code>fetchVehicles</code><br>POST /vehicles</td><td>Trim and require all fields; unique <code>vehicle_number</code> (409 on duplicate)</td><td>vehicles</td></tr>
+<tr><td><b>Rules</b></td><td>Add or delete rule</td><td><code>createRule / deleteRule</code> then <code>fetchRules</code><br>POST /alerts/configure, DELETE /alerts/{id}</td><td>Checks zone (and vehicle, if given) exist; vehicle NULL = all vehicles</td><td>alert_rules</td></tr>
+<tr><td><b>History</b></td><td>Filter, page (25/page)</td><td><code>fetchHistory</code><br>GET /violations/history?...</td><td>Dynamic WHERE, <code>count(*)</code> for total, <code>ORDER BY recorded_at DESC, seq DESC LIMIT/OFFSET</code> (limit capped at 500)</td><td>violations (indexed by time, vehicle, geofence)</td></tr>
+</tbody></table></div>
+
+<h2>4. Frontend strategies (what is implemented)</h2>
+<div class="q"><b>Single source of truth.</b> Five Redux slices. Components never call <code>fetch</code>; only thunks call <code>api.ts</code>, which is the one place that sets headers, parses errors and converts network failure into a readable <code>ApiError</code>.</div>
+<div class="q"><b>Refetch after write, not optimistic updates.</b> After POST/DELETE the thunk reloads the list, so the UI always shows what the server actually stored (including server-generated ids).</div>
+<div class="q"><b>Two ways to stay fresh.</b> WebSocket for instant alerts, plus a 10 s poll of positions as a safety net. The socket handler also refreshes positions because an alert means a vehicle moved.</div>
+<div class="q"><b>Resilient socket.</b> Opened once in <code>main.tsx</code>, outside React, so StrictMode cannot open it twice. Exponential backoff 1, 2, 4 ... capped at 15 s. On every (re)connect it calls <code>fetchEvents</code> and merges by <code>event_id</code>, filling any gap while offline. The sidebar shows connecting / live / reconnecting / offline.</div>
+<div class="q"><b>UI signals through the store.</b> <code>ui.focus</code> and <code>ui.pulse</code> carry a <code>nanoid</code> key, so clicking the same alert twice still re-triggers the map animation. Status per slice: idle, loading (first load only), ready, error, with a retry button.</div>
+<div class="q"><b>Runtime config.</b> <code>public/config.js</code> sets <code>window.__CONFIG__</code> before the bundle runs, so the API address can change on a deployed build without rebuilding; <code>VITE_*</code> is the fallback. SPA rewrites (<code>vercel.json</code>, <code>_redirects</code>) make refresh on <code>/zones</code> work.</div>
+
+<h2>5. Backend strategies and why</h2>
+<div class="tw"><table><thead><tr><th>Concern</th><th>Strategy</th><th>Why</th></tr></thead><tbody>
+<tr><td>Fast containment test</td><td>GiST on <code>bbox</code> then ray casting; point as a degenerate box so the index is used</td><td>Avoids testing every polygon; exactness stays in one tested Go function</td></tr>
+<tr><td>Concurrent updates</td><td>Row lock on the vehicle inside one transaction</td><td>Two simultaneous reports for one vehicle cannot corrupt the zone state or double-fire events</td></tr>
+<tr><td>Out-of-order data</td><td>Compare with <code>max(recorded_at)</code>; keep history, skip state change</td><td>Late packets must not flip a vehicle back into an old zone</td></tr>
+<tr><td>Latency</td><td>Alert delivery off the request path (queue + worker)</td><td>Response time does not depend on how many dashboards are connected</td></tr>
+<tr><td>Backpressure</td><td>Non-blocking enqueue; per-client buffer; slow clients dropped</td><td>One stuck consumer cannot block producers or other clients</td></tr>
+<tr><td>Abuse control</td><td>Token bucket per client IP, 1 MiB body cap, optional API key, query timeout 10 s</td><td>Protects the hot write endpoint and the database</td></tr>
+<tr><td>Startup safety</td><td>Idempotent schema in one transaction under an advisory lock; retry DB connect 30 times; graceful shutdown flushes the queue</td><td>Several instances can start together; no lost queued alerts on deploy</td></tr>
+<tr><td>Testability</td><td><code>Store</code> interface with Postgres and Memory implementations plus a shared contract test</td><td>Same behaviour verified on both; handlers tested without a database</td></tr>
+<tr><td>WebSocket</td><td>Own RFC 6455 server: handshake, framing, ping every 25 s, 60 s read deadline</td><td>No dependency; liveness detection built in</td></tr>
+</tbody></table></div>
+
+<h2>6. Honest limits (say these before they ask)</h2>
+<div class="q lim"><b>Single instance only for live push.</b> The hub is in memory, so with two API instances an alert reaches only clients on the instance that handled the update. Fix: Postgres LISTEN/NOTIFY or Redis pub/sub.</div>
+<div class="q lim"><b>Alerts are at-most-once.</b> The violation row is committed before the queue, so history is the source of truth; but an alert still in the in-memory queue during a crash is lost. Reconnect catch-up only returns alerts that were persisted.</div>
+<div class="q lim"><b>Read-path shortcuts.</b> <code>/vehicles/locations</code> runs two queries per vehicle (N+1), and list endpoints load all rows then slice in memory. Fine at demo scale; next step is a single join (<code>DISTINCT ON</code>) and SQL <code>LIMIT/OFFSET</code>.</div>
+<div class="q lim"><b>Security scope.</b> One shared API key, and it sits in the public <code>config.js</code>; WebSocket accepts any origin; the client supplies the timestamp. A real deployment needs per-user auth and a server-side timestamp or skew check.</div>
+<div class="q lim"><b>Geometry.</b> Polygons are planar in lat/lon: right for city-scale zones, not for the antimeridian or poles. Zones cannot be edited or deleted yet.</div>
+</main></body></html>
