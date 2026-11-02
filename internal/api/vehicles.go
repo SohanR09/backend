@@ -222,20 +222,61 @@ func (s *Server) getVehicleLocation(r *http.Request) (int, map[string]any) {
 // listVehicleLocations is an extra endpoint (not part of the required set)
 // that returns the latest position of every vehicle that has reported one, so
 // the dashboard can draw all markers with a single request.
+
+// OLDER VERSION
+// func (s *Server) listVehicleLocations(*http.Request) (int, map[string]any) {
+// 	vehicles, err := s.store.ListVehicles()
+// 	if err != nil {
+// 		return fail(http.StatusInternalServerError, "could not load vehicles")
+// 	}
+// 	out := make([]vehicleLocationView, 0, len(vehicles))
+// 	for _, v := range vehicles {
+// 		view, err := s.viewFor(v)
+// 		if err == store.ErrNotFound {
+// 			continue
+// 		} else if err != nil {
+// 			return fail(http.StatusInternalServerError, "could not load locations")
+// 		}
+// 		out = append(out, view)
+// 	}
+// 	return http.StatusOK, map[string]any{"locations": out}
+// }
+// OLDER VERSION
+
+// NEW VERSION
 func (s *Server) listVehicleLocations(*http.Request) (int, map[string]any) {
 	vehicles, err := s.store.ListVehicles()
 	if err != nil {
 		return fail(http.StatusInternalServerError, "could not load vehicles")
 	}
+	locs, err := s.store.LatestLocations()
+	if err != nil {
+		return fail(http.StatusInternalServerError, "could not load locations")
+	}
+	states, err := s.store.GeofenceStates()
+	if err != nil {
+		return fail(http.StatusInternalServerError, "could not load locations")
+	}
+
 	out := make([]vehicleLocationView, 0, len(vehicles))
 	for _, v := range vehicles {
-		view, err := s.viewFor(v)
-		if err == store.ErrNotFound {
-			continue
-		} else if err != nil {
-			return fail(http.StatusInternalServerError, "could not load locations")
+		loc, ok := locs[v.ID]
+		if !ok {
+			continue // no location recorded yet
 		}
-		out = append(out, view)
+		gs := states[v.ID]
+		views := make([]currentGeofenceView, 0, len(gs))
+		for _, g := range gs {
+			views = append(views, currentGeofenceView{GeofenceID: g.ID, GeofenceName: g.Name, Category: g.Category})
+		}
+		out = append(out, vehicleLocationView{
+			VehicleID:        v.ID,
+			VehicleNumber:    v.VehicleNumber,
+			DriverName:       v.DriverName,
+			CurrentLocation:  locationView{Latitude: loc.Latitude, Longitude: loc.Longitude, Timestamp: loc.Timestamp},
+			CurrentGeofences: views,
+		})
 	}
 	return http.StatusOK, map[string]any{"locations": out}
 }
+// NEW VERSION

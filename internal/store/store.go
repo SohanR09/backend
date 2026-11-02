@@ -66,4 +66,7 @@ type Store interface {
 	// most recent ones, newest first.
 	AddAlertEvent(e model.AlertEvent) error
 	ListAlertEvents(limit int) ([]model.AlertEvent, error)
+
+	LatestLocations() (map[string]model.Location, error)
+	GeofenceStates() (map[string][]model.Geofence, error)
 }

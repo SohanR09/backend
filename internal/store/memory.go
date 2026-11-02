@@ -292,3 +292,23 @@ func (m *Memory) ListAlertEvents(limit int) ([]model.AlertEvent, error) {
 	}
 	return out, nil
 }
+
+func (m *Memory) LatestLocations() (map[string]model.Location, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	out := make(map[string]model.Location, len(m.latest))
+	for k, v := range m.latest {
+		out[k] = v
+	}
+	return out, nil
+}
+
+func (m *Memory) GeofenceStates() (map[string][]model.Geofence, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	out := make(map[string][]model.Geofence, len(m.state))
+	for id, ids := range m.state {
+		out[id] = m.geofencesByIDLocked(ids)
+	}
+	return out, nil
+}

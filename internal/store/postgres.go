@@ -320,13 +320,32 @@ func (p *Postgres) ApplyLocation(loc model.Location, insideIDs []string) (bool, 
 		if _, err := tx.ExecContext(ctx, `DELETE FROM vehicle_geofence_state WHERE vehicle_id = $1`, loc.VehicleID); err != nil {
 			return false, nil, err
 		}
-		for _, id := range insideIDs {
-			if _, err := tx.ExecContext(ctx,
-				`INSERT INTO vehicle_geofence_state (vehicle_id, geofence_id) VALUES ($1, $2)`,
-				loc.VehicleID, id); err != nil {
+
+		// OLDER VERSION
+		// for _, id := range insideIDs {
+		// 	if _, err := tx.ExecContext(ctx,
+		// 		`INSERT INTO vehicle_geofence_state (vehicle_id, geofence_id) VALUES ($1, $2)`,
+		// 		loc.VehicleID, id); err != nil {
+		// 		return false, nil, err
+		// 	}
+		// }
+		// OLDER VERSION
+
+
+		// NEW VERSION
+		if len(insideIDs) > 0 {
+			ids, err := json.Marshal(insideIDs)
+			if err != nil {
+				return false, nil, err
+			}
+			if _, err := tx.ExecContext(ctx, `
+				INSERT INTO vehicle_geofence_state (vehicle_id, geofence_id)
+				SELECT $1, jsonb_array_elements_text($2::jsonb)`,
+				loc.VehicleID, string(ids)); err != nil {
 				return false, nil, err
 			}
 		}
+		// NEW VERSION
 	}
 	if err := tx.Commit(); err != nil {
 		return false, nil, err
@@ -559,6 +578,64 @@ func (p *Postgres) ListAlertEvents(limit int) ([]model.AlertEvent, error) {
 			return nil, fmt.Errorf("decode alert event: %w", err)
 		}
 		out = append(out, e)
+	}
+	return out, rows.Err()
+}
+
+func (p *Postgres) LatestLocations() (map[string]model.Location, error) {
+	ctx, cancel := newCtx()
+	defer cancel()
+
+	rows, err := p.db.QueryContext(ctx, `
+		SELECT DISTINCT ON (vehicle_id) vehicle_id, latitude, longitude, recorded_at
+		FROM vehicle_locations
+		ORDER BY vehicle_id, recorded_at DESC, id DESC`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	out := make(map[string]model.Location)
+	for rows.Next() {
+		var l model.Location
+		if err := rows.Scan(&l.VehicleID, &l.Latitude, &l.Longitude, &l.Timestamp); err != nil {
+			return nil, err
+		}
+		l.Timestamp = l.Timestamp.UTC()
+		out[l.VehicleID] = l
+	}
+	return out, rows.Err()
+}
+
+func (p *Postgres) GeofenceStates() (map[string][]model.Geofence, error) {
+	ctx, cancel := newCtx()
+	defer cancel()
+
+	rows, err := p.db.QueryContext(ctx, `
+		SELECT s.vehicle_id, g.id, g.name, g.description, g.category, g.coordinates, g.created_at
+		FROM vehicle_geofence_state s
+		JOIN geofences g ON g.id = s.geofence_id
+		ORDER BY g.seq`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	out := make(map[string][]model.Geofence)
+	for rows.Next() {
+		var (
+			vehicleID string
+			g         model.Geofence
+			coords    []byte
+		)
+		if err := rows.Scan(&vehicleID, &g.ID, &g.Name, &g.Description, &g.Category, &coords, &g.CreatedAt); err != nil {
+			return nil, err
+		}
+		if err := json.Unmarshal(coords, &g.Coordinates); err != nil {
+			return nil, fmt.Errorf("decode coordinates of %s: %w", g.ID, err)
+		}
+		g.CreatedAt = g.CreatedAt.UTC()
+		out[vehicleID] = append(out[vehicleID], g)
 	}
 	return out, rows.Err()
 }
